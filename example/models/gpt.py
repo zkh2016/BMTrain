@@ -2,6 +2,9 @@ import torch
 import bmtrain as bmt
 from layers import TransformerEncoder, Layernorm, Embedding, TransformerEncoder
 
+def transformer_post_backward(module, grad_inputs, grad_outputs):
+    print("call transformer_post_backward")
+
 class GPT(bmt.DistributedModule):
     def __init__(self,
             num_layers : int, vocab_size : int,
@@ -16,7 +19,7 @@ class GPT(bmt.DistributedModule):
         self.word_emb = Embedding(vocab_size, dim_model, dtype=dtype)
         self.pos_emb = Embedding(max_distance, dim_model, dtype=dtype)
         
-        self.transformers = bmt.TransformerBlockList([
+        self.transformers = bmt.PipelineTransformerBlockList([
             bmt.CheckpointBlock(
                 TransformerEncoder(
                     dim_model, dim_head, num_heads, dim_ff, bias, dtype
@@ -24,6 +27,7 @@ class GPT(bmt.DistributedModule):
             )
             for _ in range(num_layers)
         ])
+        self.transformers.register_full_backward_hook(transformer_post_backward)
 
         self.layernorm = Layernorm(dim_model, dtype=dtype)
 

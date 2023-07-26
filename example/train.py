@@ -2,15 +2,18 @@ import torch
 import bmtrain as bmt
 from models import GPT
 import time
+import numpy as np
 
 def main():
     bmt.init_distributed(
         seed=0,
         zero_level=2,
+        use_checkpoint=False,
+        pipe_size=2,
     )
 
     model = GPT(
-        num_layers=8,
+        num_layers=4,
         vocab_size=10240, 
         dim_model=2560,
         dim_head=80,
@@ -31,6 +34,9 @@ def main():
     # data
     # generate dummy data for each rank
     torch.manual_seed(1234)
+    torch.cuda.manual_seed(1234)
+    torch.cuda.manual_seed_all(1234)
+    np.random.seed(1234)
 
     batch_size = 2
     seq_len = 512
@@ -66,31 +72,34 @@ def main():
         # load data
         st = time.time()
 
-        with bmt.inspect.inspect_tensor() as inspector:
-            pos = torch.arange(enc_input.size(1)).long().cuda().repeat(enc_input.size(0), 1)
-            logits = model(
-                enc_input,
-                pos,
-                pos < enc_length[:, None]
-            )
-            batch, seq_len, vocab_out_size = logits.size()
+#with bmt.inspect.inspect_tensor() as inspector:
+        pos = torch.arange(enc_input.size(1)).long().cuda().repeat(enc_input.size(0), 1)
+        logits = model(
+            enc_input,
+            pos,
+            pos < enc_length[:, None]
+        )
+        batch, seq_len, vocab_out_size = logits.size()
 
-            loss = loss_func(logits.view(batch * seq_len, vocab_out_size), targets.view(batch * seq_len))
-        
-            global_loss = bmt.sum_loss(loss).item()
+        loss = loss_func(logits.view(batch * seq_len, vocab_out_size), targets.view(batch * seq_len))
+    
+        global_loss = bmt.sum_loss(loss).item()
 
-            optim_manager.zero_grad()
+        optim_manager.zero_grad()
 
-            optim_manager.backward(loss)
+        optim_manager.backward(loss)
+
+        if iteration == 10:
+            print(logits)
         
         # print inspected tensors in the forward & backward pass
         # print parameters of the model
         if iteration % 100 == 0:
-            bmt.print_rank(
-                bmt.inspect.format_summary(
-                    inspector.get_summary()
-                )
-            )
+#            bmt.print_rank(
+#                bmt.inspect.format_summary(
+#                    inspector.get_summary()
+#                )
+#            )
             bmt.print_rank(
                 bmt.inspect.format_summary(
                     bmt.inspect.inspect_model(model, "*")
