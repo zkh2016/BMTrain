@@ -320,12 +320,12 @@ def zero_post_forward(module, inputs, outputs):
     if module._micro_idx == config['micros'] - 1:
         module._forward_block_ctx.exit()
 
+
 def pipe_pre_forward(module, inputs):
     if not module._is_first_stage:
         if module._is_first_layer:
             pre_inputs = recv_activations(module.stage_id - 1, config['pipe_comm'])
             return (pre_inputs, ) + inputs[1:]
-
 
 def pipe_post_forward(module, inputs, outputs):
     if not module._is_last_stage:
@@ -334,16 +334,30 @@ def pipe_post_forward(module, inputs, outputs):
             send_activations(send_data, module.stage_id + 1, config['pipe_comm'])
 
 def zero_pre_backward(module, grad_inputs):
-    pass
+    if module._micro_idx == config['micros'] - 1:
+        backward_flag = 2 if config['zero_level'] == 2 else 0
+        with torch.enable_grad():
+            module._backward_block_ctx = CheckpointBlockContext(module, module._layer_dict, backward_flag, pipe=True)
+            module._backward_block_ctx.enter()
 
 def zero_post_backward(module, grad_inputs, grad_outputs):
-    pass
+    if module._micro_idx == 0 and module.stage_id == 0:
+        with torch.enable_grad():
+            module._backward_block_ctx.exit(True)
 
 def pipe_pre_backward(module, grad_inputs):
-    pass
+    if not module._is_last_stage:
+        if module._is_last_layer:
+            pre_grad_inputs = recv_activations(module.stage_id + 1, config['pipe_comm'])
+            return (pre_grad_inputs, ) + grad_inputs[1:]
+            
 
 def pipe_post_backward(module, grad_inputs, grad_outputs):
-    pass
+    if not module._is_first_stage:
+        if module._is_first_layer:
+            send_data = grad_outputs[0] if isinstance(grad_outputs, tuple) else grad_outputs
+            send_activations(send_data, module.stage_id - 1, config['pipe_comm'])
+    module._micro_idx -= 1
 
 class PipelineTransformerBlockList(torch.nn.Module):
     r"""
@@ -456,21 +470,19 @@ class PipelineTransformerBlockList(torch.nn.Module):
             for micro_idx, (hidden_state, arg) in enumerate(zip(hidden_state_list, args_list)):
                 for idx,layer_id in enumerate(self.layer_ids):
                     self._modules[str(layer_id)]._micro_idx = micro_idx
-                    output = self._modules[str(layer_id)](hidden_state, *arg)
-                    output = (output, )
-                outputs.append(output[0])
+                    hidden_state = self._modules[str(layer_id)](hidden_state, *arg)
+                outputs.append(hidden_state)
 
             last_hidden = torch.cat(outputs, dim=0)
             last_hidden = broadcast(last_hidden, config["pipe_size"] - 1, config["pipe_comm"])
             last_hidden = last_hidden.chunk(self.stages, dim=0)
             last_hidden = last_hidden[self.stage_id]
             outputs = last_hidden
-            outputs = (outputs, )
 
         if return_hidden_states:
-            return tuple(outputs[:2*self.num_hidden])
+            return outputs[:2*self.num_hidden]
         else:
-            return tuple(outputs[:self.num_hidden]) if self.num_hidden > 1 else outputs[0]
+            return outputs[:self.num_hidden] if self.num_hidden > 1 else outputs
 
     def get_range_by_stage_id(self, stage_id : int) -> List[int]:
         part_lens = [0]+[self.get_part_len_by_stage_id(i) for i in range(stage_id+1)]
