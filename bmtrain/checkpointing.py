@@ -65,18 +65,22 @@ class CheckpointBlockContext:
            
                 storage_type = local_param.storage_type()
                 if self.flag != 2:
-                    self._param_buffer[kw] = storage_type(val["partition_size"] * val["world_size"])
-                    self._param_tensor[kw] = torch.tensor([], dtype=self._param_buffer[kw].dtype, device=self._param_buffer[kw].device).set_(self._param_buffer[kw])
+#self._param_buffer[kw] = storage_type(val["partition_size"] * val["world_size"])
+                    if self.block.param_buffer[kw] is None:
+                        self.block.param_buffer[kw] = storage_type(val["partition_size"] * val["world_size"])
+#self._param_tensor[kw] = torch.tensor([], dtype=self._param_buffer[kw].dtype, device=self._param_buffer[kw].device).set_(self._param_buffer[kw])
+                    self._param_tensor[kw] = torch.tensor([], dtype=self.block.param_buffer[kw].dtype, device=self.block.param_buffer[kw].device).set_(self.block.param_buffer[kw])
 
                 if requires_grad and local_param.requires_grad:
-                    self._grad_buffer[kw] = storage_type(val["partition_size"] * val["world_size"])
-                    self._grad_tensor[kw] = torch.tensor([], dtype=self._grad_buffer[kw].dtype, device=self._grad_buffer[kw].device).set_(self._grad_buffer[kw]).zero_()
+                    if self.block._grad_buffer[kw] is None:
+                        self.block._grad_buffer[kw] = storage_type(val["partition_size"] * val["world_size"])
+                    self._grad_tensor[kw] = torch.tensor([], dtype=self.block._grad_buffer[kw].dtype, device=self.block._grad_buffer[kw].device).set_(self.block._grad_buffer[kw]).zero_()
             if self.flag != 2:
                 nccl.groupStart()
                 for kw, val in self.block._storage_info.items():
                     nccl.allGather(
                         self.block._storage_params[kw].storage(),
-                        self._param_buffer[kw],
+                        self.block.param_buffer[kw],
                         self.comm
                     )
                 nccl.groupEnd()
@@ -98,16 +102,16 @@ class CheckpointBlockContext:
             shape = param["shape"]
 
             if self.flag != 2:
-                dtype = self._param_buffer[kw_name].dtype
-                device = self._param_buffer[kw_name].device
-                param["parameter"].data = torch.tensor([], dtype=dtype, device=device).set_(self._param_buffer[kw_name], offset, shape)                
+                dtype = self.block.param_buffer[kw_name].dtype
+                device = self.block.param_buffer[kw_name].device
+                param["parameter"].data = torch.tensor([], dtype=dtype, device=device).set_(self.block.param_buffer[kw_name], offset, shape)                
             else:
                 dtype = param["parameter"].data.dtype
                 device = param["parameter"].data.device
                 param["parameter"].data = torch.tensor([], dtype=dtype, device=device).set_(self.ctx_dict[kw_name], offset, shape)
 
-            if requires_grad and kw_name in self._grad_buffer and param["parameter"].requires_grad:
-                param["parameter"].grad = torch.tensor([], dtype=dtype, device=device).set_(self._grad_buffer[kw_name], offset, shape)
+            if requires_grad and kw_name in self.block._grad_buffer and param["parameter"].requires_grad:
+                param["parameter"].grad = torch.tensor([], dtype=dtype, device=device).set_(self.block._grad_buffer[kw_name], offset, shape)
 
     def __enter__(self):
         self.enter()
@@ -144,7 +148,7 @@ class CheckpointBlockContext:
                     # scatter gradient
                     if local_param.requires_grad:
                         nccl.reduceScatter(
-                            self._grad_buffer[kw],
+                            self.block._grad_buffer[kw],
                             local_param.grad.storage(),
                             "sum",
                             self.comm
@@ -178,6 +182,7 @@ class CheckpointBlockContext:
         self._param_tensor = {}
         self._grad_buffer = {}
         self._param_buffer = {}
+#torch.cuda.empty_cache()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # reduce scatter gradients

@@ -499,6 +499,14 @@ class TransformerBlockList(torch.nn.Module):
                 self._modules[str(i)].set_pre_module(self._modules[str(i-1)])
     
         self.num_hidden = num_hidden
+        self.param_buffer = {}
+        self._grad_buffer2 = {}
+        self._grad_buffer1 = {}
+        for kw, val in self._modules[str(0)]._storage_info.items():
+            self.param_buffer[kw] = None
+            self._grad_buffer1[kw] = None
+            self._grad_buffer2[kw] = None
+        self._grad_buffer = self._grad_buffer1
 
         if sqrt:
             length = len(self)
@@ -533,10 +541,14 @@ class TransformerBlockList(torch.nn.Module):
     def forward(self, *args, return_hidden_states = False):
         self.return_hidden_states = return_hidden_states
         hidden_states = []
+
         for i in range(len(self)):
             if return_hidden_states:
                 self._modules[str(i)].return_hidden_states = return_hidden_states
                 self._modules[str(i)].hidden_states = hidden_states
+            self._modules[str(i)].param_buffer = self.param_buffer 
+            self._modules[str(i)]._grad_buffer = self._grad_buffer
+            self._grad_buffer = self._grad_buffer2 if i % 2 == 0 else self._grad_buffer1
             outputs = self._modules[str(i)]._call_impl(*args)
             if not isinstance(outputs, tuple):
                 outputs = (outputs, )
