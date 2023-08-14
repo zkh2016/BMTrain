@@ -43,7 +43,7 @@ class Linear(bmt.DistributedModule):
         )
 
 from .. import C
-def c_linear(x, weight, bias, out) -> None:
+def c_linear(x, weight, bias, out, trans_a=False, trans_b=False) -> None:
     C.linear_launcher(
             x.data_ptr(),
             weight.data_ptr(),
@@ -52,6 +52,8 @@ def c_linear(x, weight, bias, out) -> None:
             x.size(0),
             weight.size(0),
             weight.size(1),
+            trans_a,
+            trans_b,
             torch.cuda.current_stream().cuda_stream
     )
 

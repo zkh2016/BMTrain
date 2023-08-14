@@ -61,5 +61,7 @@ void linear_launcher(std::uintptr_t x,
         const int batch,
         const int in_features,
         const int out_features,
+        const bool trans_a,
+        const bool trans_b,
         std::uintptr_t stream
 );
