@@ -55,8 +55,6 @@ def c_linear(x, weight, bias, out) -> None:
             torch.cuda.current_stream().cuda_stream
     )
 
-#class BMTLinearFunction(torch.autograd.Function):
-    
     
 class BMTLinear:
     def __init__(self):

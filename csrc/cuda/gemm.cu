@@ -65,10 +65,36 @@ public:
         cublasLtMatmulDescDestroy(_desc);
         cublasLtMatrixLayoutDestroy(_weight_layout);
     }
-    void forward(const int batch, const T* x, T* out, cudaStream_t stream){
-        cublasLtMatrixLayout_t input_layout, out_layout;
-        cublasLtMatrixLayoutCreate(&input_layout, _dtype, _in_features, batch, _in_features);
-        cublasLtMatrixLayoutCreate(&out_layout, _dtype, _out_features, batch, _out_features);
+    void forward(
+            const int batch, 
+            const bool trans_a,
+            const bool trans_b,
+            const T* x, 
+            T* out, 
+            cudaStream_t stream){
+        cublasLtMatrixLayout_t x_layout, out_layout;
+        cublasLtMatrixLayoutCreate(&x_layout, _dtype, _in_features, batch, _in_features);
+        const int M = batch;
+        const int K = _in_features;
+        const int N = _out_features;
+        cublasOperation_t transa = trans_a ? CUBLAS_OP_T : CUBLAS_OP_N;
+        cublasOperation_t transb = trans_b ? CUBLAS_OP_T : CUBLAS_OP_N;
+        cublasLtMatmulDescSetAttribute(
+                      _desc, CUBLASLT_MATMUL_DESC_TRANSB, &transa, sizeof(transa));
+        cublasLtMatmulDescSetAttribute(
+                      _desc, CUBLASLT_MATMUL_DESC_TRANSA, &transb, sizeof(transb));
+        if(trans_a){
+            cublasLtMatrixLayoutCreate(&x_layout, _dtype, M, K, M);
+        }else{
+            cublasLtMatrixLayoutCreate(&x_layout, _dtype, K, M, K);
+        }
+
+        if(trans_b){
+            cublasLtMatrixLayoutCreate(&_weight_layout, _dtype, K, N, K);
+        }else{
+            cublasLtMatrixLayoutCreate(&_weight_layout, _dtype, N, K, N);
+        }
+        cublasLtMatrixLayoutCreate(&out_layout, _dtype, N, M, N);
 
         CublasLtHandle& handleInstance = CublasLtHandle::getInstance();
         cublasLtHandle_t cublas_handle = handleInstance.getHandle();
@@ -80,7 +106,7 @@ public:
                     _desc,
                     &alpha,
                     _weight, _weight_layout,
-                    x, input_layout,
+                    x, x_layout,
                     &beta,
                     out, out_layout,
                     out, out_layout, 
@@ -95,7 +121,7 @@ public:
                     _desc,
                     &alpha,
                     _weight, _weight_layout,
-                    x, input_layout,
+                    x, x_layout,
                     &beta,
                     out, out_layout,
                     out, out_layout, 
@@ -104,8 +130,11 @@ public:
                     0,
                     stream);
         }
-        cublasLtMatrixLayoutDestroy(input_layout);
+        cublasLtMatrixLayoutDestroy(x_layout);
         cublasLtMatrixLayoutDestroy(out_layout);
+    }
+    void backward(const int batch, const T*x, const T* out, const T* out_grad, T*dx, T* dweight, T* dbias, cudaStream_t stream){
+
     }
 };
 
@@ -123,7 +152,7 @@ void linear_launcher(std::uintptr_t x,
     auto* out_ptr = reinterpret_cast<half*>(out);
     Linear<half> linear(in_features, out_features, weight_ptr, bias_ptr, 0);
     auto curr_stream = reinterpret_cast<cudaStream_t>(stream);
-    linear.forward(batch, x_ptr, out_ptr, curr_stream);
+    linear.forward(batch, false, false, x_ptr, out_ptr, curr_stream);
 }
 
 
