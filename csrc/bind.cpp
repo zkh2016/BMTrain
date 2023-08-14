@@ -22,4 +22,5 @@ PYBIND11_MODULE(C, m) {
     m.def("ncclRecv",&pyNCCLRecv,"nccl recv");
     m.def("ncclCommCount",&pyNCCLCommCount,"nccl comm count");
     m.def("ncclCommUserRank",&pyNCCLCommUserRank,"nccl comm user rank");
+    m.def("linear_launcher",&linear_launcher,"linear");
 }

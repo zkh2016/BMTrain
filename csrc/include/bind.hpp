@@ -53,3 +53,13 @@ void adam_launcher(
     float bias_correction2,
     uintptr_t stream
 );
+
+void linear_launcher(std::uintptr_t x, 
+        std::uintptr_t weight,
+        std::uintptr_t bias,
+        std::uintptr_t out,
+        const int batch,
+        const int in_features,
+        const int out_features,
+        std::uintptr_t stream
+);

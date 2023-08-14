@@ -41,3 +41,33 @@ class Linear(bmt.DistributedModule):
         return 'in_features={}, out_features={}, bias={}'.format(
             self.in_features, self.out_features, self.bias is not None
         )
+
+from .. import C
+def c_linear(x, weight, bias, out) -> None:
+    C.linear_launcher(
+            x.data_ptr(),
+            weight.data_ptr(),
+            bias.data_ptr(),
+            out.data_ptr(),
+            x.size(0),
+            weight.size(0),
+            weight.size(1),
+            torch.cuda.current_stream().cuda_stream
+    )
+
+#class BMTLinearFunction(torch.autograd.Function):
+    
+    
+class BMTLinear:
+    def __init__(self):
+        self.out_dict = {}
+    def run(self, x, weight, bias):
+        if x.dim() == 3:
+            x = x.view(x.shape[0] * x.shape[1], x.shape[2])
+        out_shape = (x.shape[0], weight.shape[1])
+        if out_shape in self.out_dict:
+            out_tensor = self.out_dict[out_shape]
+        else:
+            out_tensor = torch.empty(out_shape, dtype=x.dtype, device=x.device)
+        c_linear(x, weight, bias, out_tensor)
+        return out_tensor
