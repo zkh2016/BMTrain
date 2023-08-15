@@ -1,6 +1,49 @@
 import torch
 import torch.nn.functional as F
 import bmtrain as bmt
+from .. import C
+def c_linear(x, weight, bias, out, trans_a=False, trans_b=False) -> None:
+    M = x.size(0)
+    if x.dim() == 3:
+        M = M * x.shape[1]
+    K = weight.shape[1]
+    N = weight.shape[0]
+    C.linear_launcher(
+            x.data_ptr(),
+            weight.data_ptr(),
+            bias.data_ptr() if bias is not None else None,
+            out.data_ptr(),
+            M,
+            K,
+            N,
+            trans_a,
+            trans_b,
+            torch.cuda.current_stream().cuda_stream
+    )
+
+def c_linear_backward(x, weight, bias, out, dout, dx, dweight, dbias, trans_a=False, trans_b=False) -> None:
+    M = x.size(0)
+    if x.dim() == 3:
+        M = M * x.shape[1]
+    K = weight.shape[1]
+    N = weight.shape[0]
+    C.linear_backward_launcher(
+            x.data_ptr(),
+            weight.data_ptr(),
+            bias.data_ptr(),
+            out.data_ptr(),
+            dout.data_ptr(),
+            dx.data_ptr(),
+            dweight.data_ptr(),
+            dbias.data_ptr(),
+            M,
+            K,
+            N,
+            trans_a,
+            trans_b,
+            torch.cuda.current_stream().cuda_stream
+    )
+
 
 class CustomLinear(torch.autograd.Function):
     @staticmethod
@@ -42,50 +85,43 @@ class Linear(bmt.DistributedModule):
             self.in_features, self.out_features, self.bias is not None
         )
 
-from .. import C
-def c_linear(x, weight, bias, out, trans_a=False, trans_b=False) -> None:
-    C.linear_launcher(
-            x.data_ptr(),
-            weight.data_ptr(),
-            bias.data_ptr() if bias is not None else None,
-            out.data_ptr(),
-            x.size(0),
-            weight.size(0),
-            weight.size(1),
-            trans_a,
-            trans_b,
-            torch.cuda.current_stream().cuda_stream
-    )
 
-def c_linear_backward(x, weight, bias, out, dout, dx, dweight, dbias, trans_a=False, trans_b=False) -> None:
-    C.linear_backward_launcher(
-            x.data_ptr(),
-            weight.data_ptr(),
-            bias.data_ptr(),
-            out.data_ptr(),
-            dout.data_ptr(),
-            dx.data_ptr(),
-            dweight.data_ptr(),
-            dbias.data_ptr(),
-            x.size(0),
-            weight.size(1),#weight(n, k)
-            weight.size(0),
-            trans_a,
-            trans_b,
-            torch.cuda.current_stream().cuda_stream
-    )
+class ActivationLinearFunc(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, module, x):
+        ctx.save_for_backward(x)
+        ctx.module = module
+        c_linear(x, module.weight, module.bias, module.out, trans_b=True)
+        return module.out
 
-    
-class BMTLinear:
-    def __init__(self):
-        self.out_dict = {}
-    def run(self, x, weight, bias):
-        if x.dim() == 3:
-            x = x.view(x.shape[0] * x.shape[1], x.shape[2])
-        out_shape = (x.shape[0], weight.shape[1])
-        if out_shape in self.out_dict:
-            out_tensor = self.out_dict[out_shape]
+    @staticmethod
+    def backward(ctx, dout):
+        x,  = ctx.saved_tensors
+        module = ctx.module
+        dx = torch.empty_like(x)
+        c_linear_backward(x, module.weight, module.bias, module.out, dout, dx, module.weight.grad, module.bias.grad) 
+        return None, dx
+
+class ActivationLinear(bmt.DistributedModule):
+    def __init__(self, in_features : int, out_features: int, bias: bool = True, dtype = None) -> None:
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = bmt.DistributedParameter(torch.empty(out_features, in_features, dtype=dtype, device="cuda"), init_method=torch.nn.init.xavier_normal_)
+        if bias:
+            self.bias = bmt.DistributedParameter(torch.empty(out_features, dtype=dtype, device="cuda"), init_method=torch.nn.init.zeros_)
         else:
-            out_tensor = torch.empty(out_shape, dtype=x.dtype, device=x.device)
-        c_linear(x, weight, bias, out_tensor)
-        return out_tensor
+            self.register_parameter('bias', None)
+        self.out = None
+    
+    def forward(self, x):
+        if self.out is None:
+            shape = x.shape[:-1] + (self.out_features,)
+            self.out = torch.empty(shape, dtype=x.dtype, device=x.device)
+        return ActivationLinearFunc.apply(self, x)
+
+    def extra_repr(self) -> str:
+        return 'in_features={}, out_features={}, bias={}'.format(
+            self.in_features, self.out_features, self.bias is not None
+        )
+
