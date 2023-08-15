@@ -20,9 +20,9 @@ class GPT(bmt.DistributedModule):
             bmt.CheckpointBlock(
                 TransformerEncoder(
                     dim_model, dim_head, num_heads, dim_ff, bias, dtype
-                )
+                ), use_checkpoint=False if i % 2 == 0 else True
             )
-            for _ in range(num_layers)
+            for i in range(num_layers)
         ])
 
         self.layernorm = Layernorm(dim_model, dtype=dtype)
