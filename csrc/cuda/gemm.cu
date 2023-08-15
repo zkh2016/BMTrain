@@ -4,6 +4,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <cublasLt.h>
+#include <cuda_bf16.h>
 
 class CublasLtHandle {
 public:
@@ -303,8 +304,8 @@ void gemm(const T* A, const T* B, const T* Bias,
         dtype = CUDA_R_32F;
         cublasLtMatmulDescCreate(&desc, CUBLAS_COMPUTE_32F, dtype); 
     }else{
-        dtype = CUDA_R_16F;
-        cublasLtMatmulDescCreate(&desc, CUBLAS_COMPUTE_16F, dtype); 
+        dtype = CUDA_R_16BF;
+        cublasLtMatmulDescCreate(&desc, CUBLAS_COMPUTE_32F, dtype); 
     }
 
     cublasLtMatrixLayout_t a_layout, b_layout, c_layout;
@@ -364,7 +365,8 @@ void gemm(const T* A, const T* B, const T* Bias,
                 0,
                 stream);
     }else{
-        half alpha = __float2half(1), beta = __float2half(0);
+        //half alpha = __float2half(1), beta = __float2half(0);
+        __nv_bfloat16 alpha = __float2bfloat16(1), beta = __float2bfloat16(0);
 		auto algo = GemmEpilogueAlgoCache::Instance().GetGemmAlgo(cublas_handle,
 				desc,
 				b_layout,
@@ -407,12 +409,12 @@ void linear_launcher(std::uintptr_t x,
         const bool trans_a,
         const bool trans_b,
         std::uintptr_t stream){
-    auto* x_ptr = reinterpret_cast<half*>(x);
-    auto* weight_ptr = reinterpret_cast<half*>(weight);
-    auto* bias_ptr = reinterpret_cast<half*>(bias);
-    auto* out_ptr = reinterpret_cast<half*>(out);
+    auto* x_ptr = reinterpret_cast<__nv_bfloat16*>(x);
+    auto* weight_ptr = reinterpret_cast<__nv_bfloat16*>(weight);
+    auto* bias_ptr = reinterpret_cast<__nv_bfloat16*>(bias);
+    auto* out_ptr = reinterpret_cast<__nv_bfloat16*>(out);
     auto curr_stream = reinterpret_cast<cudaStream_t>(stream);
-    gemm<half>(x_ptr, weight_ptr, bias_ptr, 
+    gemm<__nv_bfloat16>(x_ptr, weight_ptr, bias_ptr, 
             batch, in_features, out_features, 
             trans_a, trans_b, 
             out_ptr, curr_stream);
