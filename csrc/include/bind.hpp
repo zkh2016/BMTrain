@@ -65,3 +65,18 @@ void linear_launcher(std::uintptr_t x,
         const bool trans_b,
         std::uintptr_t stream
 );
+
+void linear_backward_launcher(std::uintptr_t x, 
+        std::uintptr_t weight,
+        std::uintptr_t bias,
+        std::uintptr_t out,
+        std::uintptr_t dout,
+        std::uintptr_t dx,
+        std::uintptr_t dweight,
+        std::uintptr_t dbias,
+        const int batch,
+        const int in_features,
+        const int out_features,
+        const bool trans_a,
+        const bool trans_b,
+        std::uintptr_t stream);

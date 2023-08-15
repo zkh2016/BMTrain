@@ -47,11 +47,29 @@ def c_linear(x, weight, bias, out, trans_a=False, trans_b=False) -> None:
     C.linear_launcher(
             x.data_ptr(),
             weight.data_ptr(),
-            bias.data_ptr(),
+            bias.data_ptr() if bias is not None else None,
             out.data_ptr(),
             x.size(0),
             weight.size(0),
             weight.size(1),
+            trans_a,
+            trans_b,
+            torch.cuda.current_stream().cuda_stream
+    )
+
+def c_linear_backward(x, weight, bias, out, dout, dx, dweight, dbias, trans_a=False, trans_b=False) -> None:
+    C.linear_backward_launcher(
+            x.data_ptr(),
+            weight.data_ptr(),
+            bias.data_ptr(),
+            out.data_ptr(),
+            dout.data_ptr(),
+            dx.data_ptr(),
+            dweight.data_ptr(),
+            dbias.data_ptr(),
+            x.size(0),
+            weight.size(1),#weight(n, k)
+            weight.size(0),
             trans_a,
             trans_b,
             torch.cuda.current_stream().cuda_stream

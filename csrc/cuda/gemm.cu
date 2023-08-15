@@ -2,10 +2,6 @@
 #include <vector>
 #include <cublasLt.h>
 
-#include <stdio.h>
-#define BM_CUBLAS_ASSERT(status) do{cublasStatus_t v = (status);if (v != CUBLAS_STATUS_SUCCESS) std::cout << "CUBLAS Error: " #status, __FILE__, __LINE__, __PRETTY_FUNCTION__, cublasGetErrorString(v);}while(0)
-
-
 class CublasLtHandle {
 public:
     static CublasLtHandle& getInstance() {
@@ -29,114 +25,100 @@ private:
     cublasLtHandle_t handle;
 };
 
-template<typename T>
-class Linear{
-    uint32_t _in_features, _out_features;
-    const T* _weight;
-    const T* _bias;
-    cudaDataType _dtype;
+template<typename T, bool backward=false>
+void gemm(const T* A, const T* B, const T* Bias, 
+        const int M, const int K, const int N,
+        const bool trans_a, const bool trans_b,
+        T* C,
+        cudaStream_t stream){
+    cudaDataType dtype;
+    cublasLtMatmulDesc_t desc;
+    if (std::is_same<T, float>::value){
+        dtype = CUDA_R_32F;
+        cublasLtMatmulDescCreate(&desc, CUBLAS_COMPUTE_32F, dtype); 
+    }else{
+        dtype = CUDA_R_16F;
+        cublasLtMatmulDescCreate(&desc, CUBLAS_COMPUTE_16F, dtype); 
+    }
 
-    cublasLtMatmulDesc_t _desc;
-    cublasLtMatrixLayout_t _weight_layout;
-    
-public:
-    Linear(const uint32_t in_features, const uint32_t out_features, const T* weight, const T*bias, const int dtype)
-        : _in_features(in_features),
-        _out_features(out_features),
-        _weight(weight),
-        _bias(bias) {
-        if(dtype == 0){ //fp16
-            _dtype = CUDA_R_16F;
-            cublasLtMatmulDescCreate(&_desc, CUBLAS_COMPUTE_16F, CUDA_R_16F); 
-        }else if(dtype == 1) { //fp32
-            _dtype = CUDA_R_32F;
-            cublasLtMatmulDescCreate(&_desc, CUBLAS_COMPUTE_32F, CUDA_R_32F);
+    cublasLtMatrixLayout_t a_layout, b_layout, c_layout;
+    if (Bias != nullptr){
+        if (backward){
+            cublasLtEpilogue_t fused_db = CUBLASLT_EPILOGUE_BGRADB;
+            cublasLtMatmulDescSetAttribute(
+                    desc,
+                    CUBLASLT_MATMUL_DESC_EPILOGUE,
+                    &fused_db,
+                    sizeof(fused_db));
+        }else{
+            cublasLtEpilogue_t epilogue = CUBLASLT_EPILOGUE_BIAS;
+            cublasLtMatmulDescSetAttribute(desc, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof(epilogue));
         }
-        cublasLtEpilogue_t epilogue = CUBLASLT_EPILOGUE_BIAS;
-        cublasLtMatmulDescSetAttribute(_desc, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof(epilogue));
-        cublasLtMatrixLayoutCreate(&_weight_layout, _dtype, _out_features, _in_features, _out_features);
-        auto status = cublasLtMatmulDescSetAttribute(
-                _desc,
+        cublasLtMatmulDescSetAttribute(
+                desc,
                 CUBLASLT_MATMUL_DESC_BIAS_POINTER,
-                &_bias,
-                sizeof(_bias));
+                &Bias,
+                sizeof(Bias));
     }
-    ~Linear(){
-        cublasLtMatmulDescDestroy(_desc);
-        cublasLtMatrixLayoutDestroy(_weight_layout);
+    cublasLtMatrixLayoutCreate(&a_layout, dtype, K, M, K);
+    cublasOperation_t transa = trans_a ? CUBLAS_OP_T : CUBLAS_OP_N;
+    cublasOperation_t transb = trans_b ? CUBLAS_OP_T : CUBLAS_OP_N;
+    cublasLtMatmulDescSetAttribute(
+                  desc, CUBLASLT_MATMUL_DESC_TRANSB, &transa, sizeof(transa));
+    cublasLtMatmulDescSetAttribute(
+                  desc, CUBLASLT_MATMUL_DESC_TRANSA, &transb, sizeof(transb));
+    if(trans_a){
+        cublasLtMatrixLayoutCreate(&a_layout, dtype, M, K, M);
+    }else{
+        cublasLtMatrixLayoutCreate(&a_layout, dtype, K, M, K);
     }
-    void forward(
-            const int batch, 
-            const bool trans_a,
-            const bool trans_b,
-            const T* x, 
-            T* out, 
-            cudaStream_t stream){
-        cublasLtMatrixLayout_t x_layout, out_layout;
-        cublasLtMatrixLayoutCreate(&x_layout, _dtype, _in_features, batch, _in_features);
-        const int M = batch;
-        const int K = _in_features;
-        const int N = _out_features;
-        cublasOperation_t transa = trans_a ? CUBLAS_OP_T : CUBLAS_OP_N;
-        cublasOperation_t transb = trans_b ? CUBLAS_OP_T : CUBLAS_OP_N;
-        cublasLtMatmulDescSetAttribute(
-                      _desc, CUBLASLT_MATMUL_DESC_TRANSB, &transa, sizeof(transa));
-        cublasLtMatmulDescSetAttribute(
-                      _desc, CUBLASLT_MATMUL_DESC_TRANSA, &transb, sizeof(transb));
-        if(trans_a){
-            cublasLtMatrixLayoutCreate(&x_layout, _dtype, M, K, M);
-        }else{
-            cublasLtMatrixLayoutCreate(&x_layout, _dtype, K, M, K);
-        }
 
-        if(trans_b){
-            cublasLtMatrixLayoutCreate(&_weight_layout, _dtype, K, N, K);
-        }else{
-            cublasLtMatrixLayoutCreate(&_weight_layout, _dtype, N, K, N);
-        }
-        cublasLtMatrixLayoutCreate(&out_layout, _dtype, N, M, N);
-
-        CublasLtHandle& handleInstance = CublasLtHandle::getInstance();
-        cublasLtHandle_t cublas_handle = handleInstance.getHandle();
-
-        if (_dtype == CUDA_R_32F){
-            float alpha = 1, beta = 0;
-            cublasLtMatmul(
-                    cublas_handle,
-                    _desc,
-                    &alpha,
-                    _weight, _weight_layout,
-                    x, x_layout,
-                    &beta,
-                    out, out_layout,
-                    out, out_layout, 
-                    0,
-                    NULL,
-                    0,
-                    stream);
-        }else{
-            half alpha = __float2half(1), beta = __float2half(0);
-            cublasLtMatmul(
-                    cublas_handle,
-                    _desc,
-                    &alpha,
-                    _weight, _weight_layout,
-                    x, x_layout,
-                    &beta,
-                    out, out_layout,
-                    out, out_layout, 
-                    NULL,
-                    NULL,
-                    0,
-                    stream);
-        }
-        cublasLtMatrixLayoutDestroy(x_layout);
-        cublasLtMatrixLayoutDestroy(out_layout);
+    if(trans_b){
+        cublasLtMatrixLayoutCreate(&b_layout, dtype, K, N, K);
+    }else{
+        cublasLtMatrixLayoutCreate(&b_layout, dtype, N, K, N);
     }
-    void backward(const int batch, const T*x, const T* out, const T* out_grad, T*dx, T* dweight, T* dbias, cudaStream_t stream){
+    cublasLtMatrixLayoutCreate(&c_layout, dtype, N, M, N);
 
+    CublasLtHandle& handleInstance = CublasLtHandle::getInstance();
+    cublasLtHandle_t cublas_handle = handleInstance.getHandle();
+
+    if (dtype == CUDA_R_32F){
+        float alpha = 1, beta = 0;
+        cublasLtMatmul(
+                cublas_handle,
+                desc,
+                &alpha,
+                B, b_layout,
+                A, a_layout,
+                &beta,
+                C, c_layout,
+                C, c_layout, 
+                0,
+                NULL,
+                0,
+                stream);
+    }else{
+        half alpha = __float2half(1), beta = __float2half(0);
+        cublasLtMatmul(
+                cublas_handle,
+                desc,
+                &alpha,
+                B, b_layout,
+                A, a_layout,
+                &beta,
+                C, c_layout,
+                C, c_layout, 
+                NULL,
+                NULL,
+                0,
+                stream);
     }
-};
+    cublasLtMatrixLayoutDestroy(a_layout);
+    cublasLtMatrixLayoutDestroy(b_layout);
+    cublasLtMatrixLayoutDestroy(c_layout);
+    cublasLtMatmulDescDestroy(desc);
+}
 
 void linear_launcher(std::uintptr_t x, 
         std::uintptr_t weight,
@@ -152,7 +134,49 @@ void linear_launcher(std::uintptr_t x,
     auto* weight_ptr = reinterpret_cast<half*>(weight);
     auto* bias_ptr = reinterpret_cast<half*>(bias);
     auto* out_ptr = reinterpret_cast<half*>(out);
-    Linear<half> linear(in_features, out_features, weight_ptr, bias_ptr, 0);
     auto curr_stream = reinterpret_cast<cudaStream_t>(stream);
-    linear.forward(batch, trans_a, trans_b, x_ptr, out_ptr, curr_stream);
+    gemm<half>(x_ptr, weight_ptr, bias_ptr, 
+            batch, in_features, out_features, 
+            trans_a, trans_b, 
+            out_ptr, curr_stream);
+}
+
+void linear_backward_launcher(std::uintptr_t x, 
+        std::uintptr_t weight,
+        std::uintptr_t bias,
+        std::uintptr_t out,
+        std::uintptr_t dout,
+        std::uintptr_t dx,
+        std::uintptr_t dweight,
+        std::uintptr_t dbias,
+        const int batch,
+        const int in_features,
+        const int out_features,
+        const bool trans_a,
+        const bool trans_b,
+        std::uintptr_t stream){
+    auto* x_ptr = reinterpret_cast<half*>(x);
+    auto* weight_ptr = reinterpret_cast<half*>(weight);
+    auto* bias_ptr = reinterpret_cast<half*>(bias);
+    auto* out_ptr = reinterpret_cast<half*>(out);
+    auto* dout_ptr = reinterpret_cast<half*>(dout);
+    auto* dx_ptr = reinterpret_cast<half*>(dx);
+    auto* dweight_ptr = reinterpret_cast<half*>(dweight);
+    auto* dbias_ptr = reinterpret_cast<half*>(dbias);
+    const int m = batch;
+    const int k = in_features;
+    const int n = out_features;
+    auto curr_stream = reinterpret_cast<cudaStream_t>(stream);
+    //weight(n, k) in forward
+    //dx(m, k) = dout(m, n) * weight(n, k)
+    gemm<half, true>(dout_ptr, weight_ptr, nullptr, 
+            m, n, k, 
+            false, false, 
+            dx_ptr, curr_stream);
+    //dweight(n, k) = Trans(dout(m, n)) * x(m,k) 
+    //fused dbias
+    gemm<half, true>(dout_ptr, x_ptr, dbias_ptr, 
+            m, n, k, 
+            true, false, 
+            dweight_ptr, curr_stream);
 }
