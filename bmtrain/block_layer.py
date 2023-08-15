@@ -545,6 +545,9 @@ class TransformerBlockList(torch.nn.Module):
             self.add_module(str(i), module)
     
         self.num_hidden = num_hidden
+        self._param_buffer = {}
+        for kw, val in self._modules[str(0)]._storage_info.items():
+            self._param_buffer[kw] = None
 
         if sqrt:
             length = len(self)
@@ -583,6 +586,7 @@ class TransformerBlockList(torch.nn.Module):
             if return_hidden_states:
                 self._modules[str(i)].return_hidden_states = return_hidden_states
                 self._modules[str(i)].hidden_states = hidden_states
+            self._modules[str(i)]._param_buffer = self._param_buffer 
             outputs = self._modules[str(i)]._call_impl(*args)
             if not isinstance(outputs, tuple):
                 outputs = (outputs, )

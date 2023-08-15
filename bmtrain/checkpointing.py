@@ -64,8 +64,9 @@ class CheckpointBlockContext:
            
                 storage_type = local_param.storage_type()
                 if flag != 2:
-                    self._param_buffer[kw] = storage_type(val["partition_size"] * val["world_size"])
-                    self._param_tensor[kw] = torch.tensor([], dtype=self._param_buffer[kw].dtype, device=self._param_buffer[kw].device).set_(self._param_buffer[kw])
+                    if self.block._param_buffer[kw] is None:
+                        self.block._param_buffer[kw] = storage_type(val["partition_size"] * val["world_size"])
+                    self._param_tensor[kw] = torch.tensor([], dtype=self.block._param_buffer[kw].dtype, device=self.block._param_buffer[kw].device).set_(self.block._param_buffer[kw])
 
                 if requires_grad and local_param.requires_grad:
                     self._grad_buffer[kw] = storage_type(val["partition_size"] * val["world_size"])
@@ -75,7 +76,7 @@ class CheckpointBlockContext:
                 for kw, val in self.block._storage_info.items():
                     nccl.allGather(
                         self.block._storage_params[kw].storage(),
-                        self._param_buffer[kw],
+                        self.block._param_buffer[kw],
                         self.comm
                     )
                 nccl.groupEnd()
@@ -97,9 +98,9 @@ class CheckpointBlockContext:
             shape = param["shape"]
 
             if flag != 2:
-                dtype = self._param_buffer[kw_name].dtype
-                device = self._param_buffer[kw_name].device
-                param["parameter"].data = torch.tensor([], dtype=dtype, device=device).set_(self._param_buffer[kw_name], offset, shape)                
+                dtype = self.block._param_buffer[kw_name].dtype
+                device = self.block._param_buffer[kw_name].device
+                param["parameter"].data = torch.tensor([], dtype=dtype, device=device).set_(self.block._param_buffer[kw_name], offset, shape)                
             else:
                 dtype = param["parameter"].data.dtype
                 device = param["parameter"].data.device
