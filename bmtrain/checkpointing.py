@@ -69,8 +69,9 @@ class CheckpointBlockContext:
                     self._param_tensor[kw] = torch.tensor([], dtype=self.block._param_buffer[kw].dtype, device=self.block._param_buffer[kw].device).set_(self.block._param_buffer[kw])
 
                 if requires_grad and local_param.requires_grad:
-                    self._grad_buffer[kw] = storage_type(val["partition_size"] * val["world_size"])
-                    self._grad_tensor[kw] = torch.tensor([], dtype=self._grad_buffer[kw].dtype, device=self._grad_buffer[kw].device).set_(self._grad_buffer[kw]).zero_()
+                    if self.block._grad_buffer[kw] is None:
+                        self.block._grad_buffer[kw] = storage_type(val["partition_size"] * val["world_size"])
+                    self._grad_tensor[kw] = torch.tensor([], dtype=self.block._grad_buffer[kw].dtype, device=self.block._grad_buffer[kw].device).set_(self.block._grad_buffer[kw]).zero_()
             if flag != 2:
                 nccl.groupStart()
                 for kw, val in self.block._storage_info.items():
@@ -106,8 +107,8 @@ class CheckpointBlockContext:
                 device = param["parameter"].data.device
                 param["parameter"].data = torch.tensor([], dtype=dtype, device=device).set_(self.ctx_dict[kw_name], offset, shape)
 
-            if requires_grad and kw_name in self._grad_buffer and param["parameter"].requires_grad:
-                param["parameter"].grad = torch.tensor([], dtype=dtype, device=device).set_(self._grad_buffer[kw_name], offset, shape)
+            if requires_grad and kw_name in self.block._grad_buffer and param["parameter"].requires_grad:
+                param["parameter"].grad = torch.tensor([], dtype=dtype, device=device).set_(self.block._grad_buffer[kw_name], offset, shape)
 
     def __enter__(self):
         self.enter()
@@ -144,7 +145,7 @@ class CheckpointBlockContext:
                     # scatter gradient
                     if local_param.requires_grad:
                         nccl.reduceScatter(
-                            self._grad_buffer[kw],
+                            self.block._grad_buffer[kw],
                             local_param.grad.storage(),
                             "sum",
                             self.comm
