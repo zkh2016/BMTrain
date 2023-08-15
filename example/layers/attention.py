@@ -1,7 +1,10 @@
 from typing import Optional
 import torch
 import bmtrain as bmt
-from bmtrain.nn import Linear
+from bmtrain.nn import (
+        Linear,
+        ActivationLinear
+)
 import math
 
 class Attention(bmt.DistributedModule):
@@ -12,11 +15,18 @@ class Attention(bmt.DistributedModule):
         ) -> None:
         super().__init__()
 
-        self.project_q = Linear(dim_model, dim_head * num_heads, bias=bias, dtype=dtype)
-        self.project_k = Linear(dim_model, dim_head * num_heads, bias=bias, dtype=dtype)
-        self.project_v = Linear(dim_model, dim_head * num_heads, bias=bias, dtype=dtype)
+        if True:
+            self.project_q = ActivationLinear(dim_model, dim_head * num_heads, bias=bias, dtype=dtype)
+            self.project_k = ActivationLinear(dim_model, dim_head * num_heads, bias=bias, dtype=dtype)
+            self.project_v = ActivationLinear(dim_model, dim_head * num_heads, bias=bias, dtype=dtype)
 
-        self.project_out = Linear(dim_head * num_heads, dim_model, bias=bias, dtype=dtype)
+            self.project_out = ActivationLinear(dim_head * num_heads, dim_model, bias=bias, dtype=dtype)
+        else:
+            self.project_q = Linear(dim_model, dim_head * num_heads, bias=bias, dtype=dtype)
+            self.project_k = Linear(dim_model, dim_head * num_heads, bias=bias, dtype=dtype)
+            self.project_v = Linear(dim_model, dim_head * num_heads, bias=bias, dtype=dtype)
+
+            self.project_out = Linear(dim_head * num_heads, dim_model, bias=bias, dtype=dtype)
 
         self.softmax = torch.nn.Softmax(dim=-1)
         self.num_heads = num_heads
