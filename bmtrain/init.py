@@ -170,7 +170,7 @@ class topology:
         self.tp_idx = (self.tp_group == self.rank).nonzero()[0,1 if dp_size > 1 else 0].item()   
 
         if pp_size == 1 and tp_size == 1:
-            self.zero_id = config[self.rank]
+            self.zero_id = self.rank
             self.zero_idx = 0
         else:
             self.dp_group = self.tp_group.permute(0,2,1)

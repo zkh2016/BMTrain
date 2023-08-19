@@ -106,6 +106,8 @@ class DistributedParameter(torch.nn.Parameter):
             tmp_shape[self._tp_split_dim] *= config['tp_size']
             output_tensor.set_(storage, 0, tmp_shape)
             return output_tensor
+        else:
+            return zero_param
 
     def tp_gather(self) -> torch.tensor:
         if config['tp_size'] > 1:
@@ -125,6 +127,8 @@ class DistributedParameter(torch.nn.Parameter):
             tmp_shape[self._tp_split_dim] *= config['tp_size']
             output_tensor.set_(storage, 0, tmp_shape)
             return output_tensor
+        else:
+            return self
 
     def _copy_data(self, data : torch.Tensor):
         self.data.copy_(data.view(-1)[self._start_partition : self._end_partition])
