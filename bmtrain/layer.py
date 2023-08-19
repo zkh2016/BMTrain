@@ -1,5 +1,6 @@
 import torch
 from .parameter import DistributedParameter
+from .global_var import config
 import itertools
 
 class DistributedModule(torch.nn.Module):
@@ -11,7 +12,9 @@ class DistributedModule(torch.nn.Module):
     def __getattr__(self, name: str):
         ret = super().__getattr__(name)
         # gather distributed parameters if not in CheckpointBlock
-        if isinstance(ret, DistributedParameter) and not ret._in_checkpoint_block:
+        if config['tp_size'] > 1:
+            return ret.reshape(ret._original_shape)
+        if isinstance(ret, DistributedParameter) and not ret._in_checkpoint_block: 
             return ret.gather()
         return ret
     
@@ -31,7 +34,7 @@ class DistributedModule(torch.nn.Module):
         for name, param in self._parameters.items():
             if param is not None:
                 if isinstance(param, DistributedParameter) and not param._in_checkpoint_block:
-                    destination[prefix + name] = param.gather().detach().cpu()  # sync operation
+                    destination[prefix + name] = param.gather_all().detach().cpu()  # sync operation
                 else:
                     destination[prefix + name] = param if keep_vars else param.detach().cpu()
         for name, buf in self._buffers.items():

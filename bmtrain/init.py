@@ -195,3 +195,4 @@ class topology:
 
 def is_initialized() -> bool:
     return config["initialized"]
+

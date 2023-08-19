@@ -17,7 +17,10 @@ def init_distributed_parameter(params : Iterable[torch.nn.Parameter]):
             
             tmp_storage = param.storage_type()(global_size)
             tmp_tensor = torch.tensor([], dtype=param.dtype, device="cuda")
-            tmp_tensor.set_(tmp_storage, 0, param._original_shape)
+            tmp_shape = list(param._original_shape)
+            if config['tp_size'] > 1:
+                tmp_shape[param._tp_split_dim] *= config['tp_size']
+            tmp_tensor.set_(tmp_storage, 0, tmp_shape)
 
             param._init_method(tmp_tensor)
 
