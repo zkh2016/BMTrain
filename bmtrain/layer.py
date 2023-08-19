@@ -12,7 +12,7 @@ class DistributedModule(torch.nn.Module):
     def __getattr__(self, name: str):
         ret = super().__getattr__(name)
         # gather distributed parameters if not in CheckpointBlock
-        if config['tp_size'] > 1:
+        if config['tp_size'] > 1 and config['dp_size'] == 1:
             return ret.reshape(ret._original_shape)
         if isinstance(ret, DistributedParameter) and not ret._in_checkpoint_block: 
             return ret.gather()
@@ -33,8 +33,11 @@ class DistributedModule(torch.nn.Module):
         """
         for name, param in self._parameters.items():
             if param is not None:
-                if isinstance(param, DistributedParameter) and not param._in_checkpoint_block:
-                    destination[prefix + name] = param.gather_all().detach().cpu()  # sync operation
+                if isinstance(param, DistributedParameter):#and not param._in_checkpoint_block:
+                    if param._in_checkpoint_block:
+                        destination[prefix + name] = param.tp_gather().detach().cpu()  # sync operation
+                    else:
+                        destination[prefix + name] = param.gather_all().detach().cpu()  # sync operation
                 else:
                     destination[prefix + name] = param if keep_vars else param.detach().cpu()
         for name, buf in self._buffers.items():

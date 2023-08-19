@@ -75,7 +75,7 @@ def init_distributed(
     config["zero_level"] = zero_level
     config["tp_size"] = tp_size if tp_size > 0 else 1
     config["topology"] = topology(config)
-#config["zero_rank"] = config["topology"].get_group_rank("zero") if pipe_size > 1 else config['rank']
+    config["zero_rank"] = config['topology'].get_group_rank("zero")
     config["block_context"] = []
     for i in range(world_size):
         config["block_context"].append(BMTBlockContext())
@@ -132,7 +132,7 @@ def init_distributed(
             unique_id = nccl.getUniqueId()
             store.set(f"ZERO_UNIQUE_ID{topo.zero_idx}", unique_id.hex() )
         unique_id = bytes.fromhex(store.get(f"ZERO_UNIQUE_ID{topo.zero_idx}").decode())
-        config ['zero_comm'] = nccl.commInitRank(unique_id, world_size//pipe_size, topo.zero_id)
+        config ['zero_comm'] = nccl.commInitRank(unique_id, world_size//(config['pipe_size'] * config['tp_size']), topo.zero_id)
 
     for i in range(world_size):
         if i == rank:
@@ -157,6 +157,7 @@ class topology:
         assert world_size % (pp_size * tp_size) == 0, "The nums of GPUs must be divisible by the pipeline parallel size * tensor parallel size"
 
         dp_size = world_size // (pp_size * tp_size)
+        config['dp_size'] = dp_size
         topo=torch.tensor(range(dp_size*tp_size*pp_size),dtype=torch.int,device='cuda')
         topo=topo.view(pp_size,dp_size*tp_size)
         self.pp_group=topo.transpose(0,1).reshape(-1,pp_size)
@@ -168,9 +169,13 @@ class topology:
         self.tp_id = (self.tp_group == self.rank).nonzero()[0,2].item()   
         self.tp_idx = (self.tp_group == self.rank).nonzero()[0,1 if dp_size > 1 else 0].item()   
 
-        self.dp_group = self.tp_group.permute(0,2,1)
-        self.zero_id = (self.dp_group == self.rank).nonzero()[0,2 if tp_size > 1 else 0].item()   
-        self.zero_idx = (self.dp_group == self.rank).nonzero()[0,1 if tp_size > 1 else 2].item()   
+        if pp_size == 1 and tp_size == 1:
+            self.zero_id = config[self.rank]
+            self.zero_idx = 0
+        else:
+            self.dp_group = self.tp_group.permute(0,2,1)
+            self.zero_id = (self.dp_group == self.rank).nonzero()[0,2 if tp_size > 1 else 0].item()   
+            self.zero_idx = (self.dp_group == self.rank).nonzero()[0,1 if tp_size > 1 else 2].item()   
 
         self.next_rank = self.stage_id+1 if self.stage_id < config['pipe_size'] - 1 else -1
         self.prev_rank = self.stage_id-1 if self.stage_id > 0 else -1

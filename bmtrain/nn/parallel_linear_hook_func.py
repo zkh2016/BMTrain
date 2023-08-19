@@ -14,8 +14,9 @@ class LinearHookFunc(torch.autograd.Function):
         all_input = all_input.flatten(0, 1)
         out = F.linear(all_input, weight, bias)
         if gather_output:
-            all_output = all_gather(out, config['tp_comm'])         
-            out = torch.cat([all_output[0], all_output[1]], dim=1)
+            all_output_list = all_gather(out, config['tp_comm'])
+            all_output_list = all_output_list.chunk(config['tp_size'], dim=0)        
+            out = torch.cat(all_output_list, dim=all_output_list[0].dim()-1).flatten(0,1)
         return out 
             
     @staticmethod
@@ -25,8 +26,7 @@ class LinearHookFunc(torch.autograd.Function):
         if gather_output:
             tp_size = config['tp_size']
             tp_id = config['topology'].tp_id
-            last_dim_size = grad_output.size()[-1] // tp_size 
-            grad_output_list = torch.split(grad_output, last_dim_size, dim=grad_output.dim()-1)
+            grad_output_list = grad_output.chunk(tp_size, dim=1)
             grad_output = grad_output_list[tp_id]
 
         grad_input = grad_weight = grad_bias = None
@@ -41,13 +41,12 @@ class LinearHookFunc(torch.autograd.Function):
             grad_all_input = grad_output.matmul(weight)
             grad_input = torch.empty_like(input)
             
-            nccl.reduceScatter(grad_all_input, grad_input, "sum", config['tp_comm'])
+            nccl.reduceScatter(grad_all_input.storage(), grad_input.storage(), "sum", config['tp_comm'])
 
         if weight.requires_grad:
             dim = grad_output.dim()
             grad_weight = grad_output.reshape(-1,
                 grad_output.shape[-1]).t().matmul(all_input.reshape(-1, all_input.shape[-1]))
-        
          
         if bias is not None and bias.requires_grad:
             grad_bias = grad_output.reshape(-1, grad_output.shape[-1]).sum(0)

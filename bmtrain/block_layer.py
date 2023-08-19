@@ -137,11 +137,11 @@ class CheckpointBlock(torch.nn.Module):
         offsets = {}
         # intialize storage buffers
         for kw, val in self._storage_info.items():
-            val["world_size"] = config["world_size"]
+            val["world_size"] = config["dp_size"]
             partition_size = round_up(val["total"], val["world_size"]) // val["world_size"]
             val["partition_size"] = partition_size
-            val["begin"] = config['rank'] * partition_size
-            val["end"] = (config['rank'] + 1) * partition_size
+            val["begin"] = config['zero_rank'] * partition_size
+            val["end"] = (config['zero_rank'] + 1) * partition_size
             offsets[kw] = 0
 
 
@@ -414,7 +414,10 @@ class CheckpointBlock(torch.nn.Module):
             param = it["parameter"]
             if isinstance(param, DistributedParameter) and param._init_method is not None:
                 # initialzie here
-                tmp_tensor = torch.empty(it["shape"], device=param.device, dtype=param.dtype)
+                tmp_shape = list(it["shape"])
+                if config['tp_size'] > 1:
+                    tmp_shape[param._tp_split_dim] *= config['tp_size']
+                tmp_tensor = torch.empty(tmp_shape, device=param.device, dtype=param.dtype)
                 param._init_method(tmp_tensor)
                 param_st = it["offset"]
                 param_end = it["offset"] + it["size"]
@@ -429,15 +432,17 @@ class CheckpointBlock(torch.nn.Module):
                     continue
                     
                 # copy to buffer
-                assert tmp_tensor.is_contiguous() and it["size"] == tmp_tensor.numel()
+                #assert tmp_tensor.is_contiguous() and it["size"] == tmp_tensor.numel()
                 
-                offset_st = max(storage_st - param_st, 0)
-                offset_end = min(storage_end - param_st, tmp_tensor.numel())
+                import numpy as np
+                numel = np.product(it['shape'])
+                offset_st = max(storage_st - param_st, 0) + config['topology'].tp_id * numel
+                offset_end = min(storage_end - param_st, numel) + config['topology'].tp_id * numel
                 assert offset_st < offset_end
 
-                to_offset_st = offset_st + param_st - storage_st
-                to_offset_end = offset_end + param_st - storage_st
-                
+                #to_offset_st = offset_st + param_st - storage_st
+                #to_offset_end = offset_end + param_st - storage_st
+                    
                 # copy to buffer
                 # PyTorch 1.11 changed the API of storage.__getitem__
                 d_dtype = self._storage_params[kw_name].dtype
