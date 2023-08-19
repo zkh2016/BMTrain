@@ -414,10 +414,7 @@ class CheckpointBlock(torch.nn.Module):
             param = it["parameter"]
             if isinstance(param, DistributedParameter) and param._init_method is not None:
                 # initialzie here
-                tmp_shape = list(it["shape"])
-                if config['tp_size'] > 1:
-                    tmp_shape[param._tp_split_dim] *= config['tp_size']
-                tmp_tensor = torch.empty(tmp_shape, device=param.device, dtype=param.dtype)
+                tmp_tensor = torch.empty(param._tp_original_shape, device=param.device, dtype=param.dtype)
                 param._init_method(tmp_tensor)
                 param_st = it["offset"]
                 param_end = it["offset"] + it["size"]

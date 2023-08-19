@@ -3,6 +3,7 @@ import torch
 from .utils import round_up
 from .global_var import config
 from . import nccl
+from .distributed import all_gather
 
 class DistributedParameter(torch.nn.Parameter):
     r"""
@@ -46,6 +47,11 @@ class DistributedParameter(torch.nn.Parameter):
         cuda_storage_size = round_up(num_of_elements, world_size) // world_size
 
         original_shape = data.size()
+        tp_original_shape = original_shape 
+        if config['tp_size'] > 1 and tp_split_dim >= 0:
+            list_shape = list(original_shape)
+            list_shape[tp_split_dim] *= config['tp_size']
+            tp_original_shape = list_shape
 
         cuda_storage = cuda_tensor.storage_type()(cuda_storage_size)
 
@@ -66,6 +72,7 @@ class DistributedParameter(torch.nn.Parameter):
         setattr(ret, "_in_checkpoint_block", False)
         setattr(ret, "_group", group)
         setattr(ret, "_tp_split_dim", tp_split_dim)
+        setattr(ret, "_tp_original_shape", tp_original_shape)
         return ret
     
     @property
@@ -90,43 +97,26 @@ class DistributedParameter(torch.nn.Parameter):
 
     def gather_all(self) -> torch.tensor:
         zero_param = self.gather()
-        if config['tp_size'] > 1:
-            world_size = config['tp_size']
-            global_size = zero_param.storage().size() * world_size
-            storage = zero_param.storage_type()(global_size)
-            
-            nccl.allGather(
-                zero_param.storage(),
-                storage,
-                config['tp_comm']
-            )
-
-            output_tensor = torch.tensor([], dtype=zero_param.dtype, device="cuda")
-            tmp_shape = list(self._original_shape)
-            tmp_shape[self._tp_split_dim] *= config['tp_size']
-            output_tensor.set_(storage, 0, tmp_shape)
-            return output_tensor
+        if config['tp_size'] > 1 and self._tp_split_dim >= 0:
+            output_tensor = all_gather(zero_param, config['tp_comm'])
+            if self._tp_split_dim == 1:
+                output_list = output_tensor.chunk(config['tp_size'], dim=0)
+                output = torch.cat(output_list, dim=output_list[0].dim()-1).flatten(0,1)
+                return output
+            else:
+                return output_tensor.flatten(0,1)
         else:
             return zero_param
 
     def tp_gather(self) -> torch.tensor:
-        if config['tp_size'] > 1:
-            world_size = config['tp_size']
-            value = self.clone()#self.storage maybe is a buffer
-            global_size = value.storage().size() * world_size
-            storage = self.storage_type()(global_size)
-            
-            nccl.allGather(
-                value.storage(),
-                storage,
-                config['tp_comm']
-            )
-
-            output_tensor = torch.tensor([], dtype=self.dtype, device="cuda")
-            tmp_shape = list(self._original_shape)
-            tmp_shape[self._tp_split_dim] *= config['tp_size']
-            output_tensor.set_(storage, 0, tmp_shape)
-            return output_tensor
+        if config['tp_size'] > 1 and self._tp_split_dim >= 0:
+            output_tensor = all_gather(self, config['tp_comm'])
+            if self._tp_split_dim == 1:
+                output_list = output_tensor.chunk(config['tp_size'], dim=0)
+                output = torch.cat(output_list, dim=output_list[0].dim()-1).flatten(0,1)
+                return output
+            else: 
+                return output_tensor.flatten(0,1)
         else:
             return self
 

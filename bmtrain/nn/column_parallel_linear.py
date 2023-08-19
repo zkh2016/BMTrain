@@ -21,10 +21,13 @@ class ColumnParallelLinear(bmt.DistributedModule):
             self.register_parameter('bias', None)
 
     def forward(self, input):
-        return LinearHookFunc.apply(input, self.weight, self.bias, self.gather_output)
+        gather_input = True
+        split_input = False
+        reduce_output = False
+        return LinearHookFunc.apply(input, self.weight, self.bias, gather_input, self.gather_output, reduce_output, split_input)
 
     def extra_repr(self) -> str:
         return 'in_features={}, out_features={}, bias={}'.format(
-            self.in_features, self.out_features, self.bias is not None
+            self.in_features, self.out_features_per_partitions, self.bias is not None
         )
 
