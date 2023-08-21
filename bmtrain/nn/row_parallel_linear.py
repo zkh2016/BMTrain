@@ -3,14 +3,17 @@ from torch.nn.parameter import Parameter
 
 import bmtrain as bmt
 from bmtrain.global_var import config
-from .parallel_linear_hook_func import LinearHookFunc
+from .parallel_linear_hook_func import (
+    LinearHookFunc,
+    ReduceType)
 
 class RowParallelLinear(bmt.DistributedModule):
-    def __init__(self, in_features : int, out_features: int, bias: bool = True, dtype = None, split_input=False) -> None:
+    def __init__(self, in_features : int, out_features: int, bias: bool = True, dtype = None, split_input=False, all_reduce_output=False) -> None:
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.split_input=split_input
+        self.split_input = split_input
+        self.all_reduce_output = all_reduce_output
         tp_size = config['tp_size']
         assert in_features % tp_size == 0
         self.in_features_per_partition = in_features // tp_size
@@ -23,8 +26,8 @@ class RowParallelLinear(bmt.DistributedModule):
     def forward(self, input):
         gather_input = self.split_input
         gather_output = False
-        reduce_output = True
-        out = LinearHookFunc.apply(input, self.weight, None, gather_input, gather_output, reduce_output, self.split_input)
+        reduce_output_type = ReduceType.ALL_REDUCE if self.all_reduce_output else ReduceType.REDUCE_SCATTER
+        out = LinearHookFunc.apply(input, self.weight, None, gather_input, gather_output, self.split_input, reduce_output_type)
         out = out + self.bias
         return out
 

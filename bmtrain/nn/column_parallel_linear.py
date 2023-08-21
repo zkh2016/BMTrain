@@ -3,7 +3,9 @@ from torch.nn.parameter import Parameter
 
 import bmtrain as bmt
 from bmtrain.global_var import config
-from .parallel_linear_hook_func import LinearHookFunc
+from .parallel_linear_hook_func import (
+    LinearHookFunc,
+    ReduceType)
 
 class ColumnParallelLinear(bmt.DistributedModule):
     def __init__(self, in_features : int, out_features: int, bias: bool = True, dtype = None, gather_output=False) -> None:
@@ -23,8 +25,8 @@ class ColumnParallelLinear(bmt.DistributedModule):
     def forward(self, input):
         gather_input = True
         split_input = False
-        reduce_output = False
-        return LinearHookFunc.apply(input, self.weight, self.bias, gather_input, self.gather_output, reduce_output, split_input)
+        reduce_output_type = None 
+        return LinearHookFunc.apply(input, self.weight, self.bias, gather_input, self.gather_output, split_input, reduce_output_type)
 
     def extra_repr(self) -> str:
         return 'in_features={}, out_features={}, bias={}'.format(

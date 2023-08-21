@@ -9,6 +9,8 @@ def main():
     bmt.init_distributed(
         seed=0,
         zero_level=2,
+        pipe_size=4,
+        tp_size=1,
     )
 
     model = GPT(
