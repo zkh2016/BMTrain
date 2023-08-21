@@ -1,16 +1,11 @@
 import os
+import shutil
 from setuptools.command.build_ext import build_ext
 from setuptools import  setup, find_packages, Extension
 import setuptools
 import warnings
 import sys
 import subprocess
-COMMON_NVCC_FLAGS = [
-    '-D__CUDA_NO_HALF_OPERATORS__',
-    '-D__CUDA_NO_HALF_CONVERSIONS__',
-    '-D__CUDA_NO_HALF2_OPERATORS__',
-    '--expt-relaxed-constexpr'
-]
 class CMakeExtension(Extension):
     def __init__(self, name, sourcedir=""):
         Extension.__init__(self, name, sources=[])
@@ -85,9 +80,9 @@ class CMakeBuild(build_ext):
                 build_args += [f"-j{self.parallel}"]
 
         build_temp = os.path.join(self.build_temp, ext.name)
-        if not os.path.exists(build_temp):
-            os.makedirs(build_temp)
-
+        if os.path.exists(build_temp):
+            shutil.rmtree(build_temp)
+        os.makedirs(build_temp)
         cmake_args += ["-DPython_ROOT_DIR=" + os.path.dirname(os.path.dirname(sys.executable))]
         subprocess.check_call(["cmake", ext.sourcedir] + cmake_args, cwd=build_temp)
         subprocess.check_call(["cmake", "--build", "."] + build_args, cwd=build_temp)
@@ -97,7 +92,7 @@ ext_modules = [
 ]
 setup(
     name='bmtrain',
-    version='0.2.3',
+    version='0.2.3.post2',
     author="Guoyang Zeng",
     author_email="qbjooo@qq.com",
     description="A toolkit for training big models",
@@ -107,6 +102,7 @@ setup(
 		"nvidia-nccl-cu11>=2.14.3"
     ],
     setup_requires=[
+        "pybind11",
         "nvidia-nccl-cu11>=2.14.3"
     ],
     ext_modules=ext_modules,

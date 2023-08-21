@@ -1,6 +1,4 @@
 import torch
-from typing import Callable, TypeVar
-from functools import wraps
 from . import debug
 from . import nccl
 from .global_var import config
@@ -170,8 +168,6 @@ class CheckpointBlockContext:
             param["parameter"].data = torch.tensor([], dtype=dtype, device=device).set_(self.block._storage_params[kw_name].storage(), begin, end)
             if param["parameter"].requires_grad and self.block._storage_params[kw_name].grad is not None:
                 param["parameter"].grad = torch.tensor([], dtype=dtype, device=device).set_(self.block._storage_params[kw_name].grad.storage(), begin, end)
-                if self.block.all_input_no_grad:
-                    param['parameter'].grad.data = param['parameter'].grad.data.view(param['shape'])
         if flag == 1:
             for i in self._param_buffer:
                 self.ctx_dict[i] = self._param_buffer[i]
@@ -179,6 +175,7 @@ class CheckpointBlockContext:
         self._param_tensor = {}
         self._grad_buffer = {}
         self._param_buffer = {}
+            
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # reduce scatter gradients

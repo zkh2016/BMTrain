@@ -2,11 +2,11 @@ from utils import *
 
 import bmtrain as bmt
 import torch
-from bmtrain import config
 from bmtrain.block_layer import CheckpointBlockContext,  CheckpointBlock, TransformerBlockList
 from bmtrain.pipe_layer import PipelineTransformerBlockList
 from typing import List
 import torch.nn.functional as F
+from bmtrain import inspect
 
 class Linear(bmt.DistributedModule):
     def __init__(self, in_features : int, out_features: int, init_weight = None, init_bias = None) -> None:
@@ -31,13 +31,12 @@ class Linear(bmt.DistributedModule):
 
 def run(m, a, b):
     inp = torch.rand((1, 10, 256)).cuda()*100
-    inp.requires_grad_()
     logits = m(inp)
     loss = logits.sum()
     loss.backward()
 
-    sm = bmt.inspect.format_summary(
-            bmt.inspect.inspect_model(m, '*')
+    sm = inspect.format_summary(
+            inspect.inspect_model(m, '*')
         )
     return sm
 
