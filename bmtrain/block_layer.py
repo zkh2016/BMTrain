@@ -48,32 +48,6 @@ def _get_param_kw(param : DistributedParameter):
         group_name = "_g_" + param.group
     return type_name + grad_name + group_name
 
-class BMTBlockContext:
-    def __init__(self):
-        self._pre_module = None
-        self._first = True
-
-    def link_module(self, module):
-        if not self._first and module._ref_count == -1:
-            self._pre_module = module
-            module._ref_count = 1
-            return
-            
-        if self._pre_module is None:
-            module._ref_count = 1
-            module._is_first_layer = True
-        else:
-            if module._ref_count == 0:
-                module._is_first_layer = False
-            self._pre_module.set_next_module(module)
-            self._pre_module._is_last_layer = False
-        self._pre_module = module
-        self._first = False
-
-    def clear(self):
-        self._pre_module = None
-        self._first = True
-
 class CheckpointBlock(torch.nn.Module):
     """ A bmtrain block containing two memory-saving methods of ZeRO-2/3 and checkpoint.
 

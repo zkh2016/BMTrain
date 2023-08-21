@@ -33,7 +33,7 @@ class DistributedParameter(torch.nn.Parameter):
             requires_grad : bool = True, 
             init_method : Optional[Callable[['DistributedParameter'], None]] = None,
             group : Optional[str] = None,
-            tp_split_dim=0,
+            tp_split_dim=-1,
         ):
         if not config["initialized"]:
             raise RuntimeError("BMTrain is not initialized")
