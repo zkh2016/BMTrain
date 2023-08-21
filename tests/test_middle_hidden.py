@@ -3,10 +3,10 @@ from utils import *
 import bmtrain as bmt
 import random
 import torch
-from bmtrain import config
 from bmtrain.block_layer import CheckpointBlock, TransformerBlockList
 from bmtrain.pipe_layer import PipelineTransformerBlockList
 import torch.nn.functional as F
+from bmtrain import inspect 
 
 class Linear(bmt.DistributedModule):
     def __init__(self, in_features : int, out_features: int, init_weight = None, init_bias = None) -> None:
@@ -143,8 +143,8 @@ def sub_run(name, cls, num_layer, dim, batch, seq_len, only_last=False, only_mid
         loss = (logits * last_weight).sum()
         loss.backward()
         ret += f"========================only last========================\n"
-        ret += bmt.inspect.format_summary(
-            bmt.inspect.inspect_model(m, '*')
+        ret += inspect.format_summary(
+            inspect.inspect_model(m, '*')
         )
         config['block_context'][config['rank']].clear()
     if only_middle:
@@ -155,8 +155,8 @@ def sub_run(name, cls, num_layer, dim, batch, seq_len, only_last=False, only_mid
         ])
         loss.backward()
         ret += f"========================only middle========================\n"
-        ret += bmt.inspect.format_summary(
-            bmt.inspect.inspect_model(m, '*')
+        ret += inspect.format_summary(
+            inspect.inspect_model(m, '*')
         )
         config['block_context'][config['rank']].clear()
     if mix_test:
@@ -167,8 +167,8 @@ def sub_run(name, cls, num_layer, dim, batch, seq_len, only_last=False, only_mid
         ]) + (logits * last_weight).sum()
         loss.backward()
         ret += f"========================mix========================\n"
-        ret += bmt.inspect.format_summary(
-            bmt.inspect.inspect_model(m, '*')
+        ret += inspect.format_summary(
+            inspect.inspect_model(m, '*')
         )
         config['block_context'][config['rank']].clear()
     return ret + "\n" # replace for matching None grad with zero_grad

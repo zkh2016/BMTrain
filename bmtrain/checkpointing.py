@@ -1,6 +1,4 @@
 import torch
-from typing import Callable, TypeVar
-from functools import wraps
 from . import debug
 from . import nccl
 from .global_var import config
@@ -167,11 +165,7 @@ class CheckpointBlockContext:
             end = param["end"]
             param["parameter"].data = torch.tensor([], dtype=dtype, device=device).set_(self.block._storage_params[kw_name].storage(), begin, end)
             if param["parameter"].requires_grad and self.block._storage_params[kw_name].grad is not None:
-                if config['world_size'] > 1 and not self.block.all_input_no_grad:
-                    param["parameter"].grad = torch.tensor([], dtype=dtype, device=device).set_(self.block._storage_params[kw_name].grad.storage(), begin, end)
-                if config['world_size'] == 1 and self.block.all_input_no_grad:
-                    param["parameter"].grad = torch.tensor([], dtype=dtype, device=device).set_(self.block._storage_params[kw_name].grad.storage(), begin, end)
-                    param["parameter"].grad.data = param['parameter'].grad.data.view(param['shape'])
+                param["parameter"].grad = torch.tensor([], dtype=dtype, device=device).set_(self.block._storage_params[kw_name].grad.storage(), begin, end)
         if flag == 1:
             for i in self._param_buffer:
                 self.ctx_dict[i] = self._param_buffer[i]
