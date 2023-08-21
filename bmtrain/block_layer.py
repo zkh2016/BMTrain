@@ -433,8 +433,8 @@ class CheckpointBlock(torch.nn.Module):
                 
                 import numpy as np
                 numel = np.product(it['shape'])
-                offset_st = max(storage_st - param_st, 0) + config['topology'].tp_id * numel
-                offset_end = min(storage_end - param_st, numel) + config['topology'].tp_id * numel
+                offset_st = max(storage_st - param_st, 0) + config['topology'].tp_id * numel * (param._tp_split_dim >= 0)
+                offset_end = min(storage_end - param_st, numel) + config['topology'].tp_id * numel * (param._tp_split_dim >= 0)
                 assert offset_st < offset_end
 
                 #to_offset_st = offset_st + param_st - storage_st

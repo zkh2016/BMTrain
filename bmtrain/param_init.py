@@ -21,10 +21,16 @@ def init_distributed_parameter(params : Iterable[torch.nn.Parameter]):
             tmp_tensor.set_(tmp_storage, 0, param._tp_original_shape)
 
             param._init_method(tmp_tensor)
+            if param._original_shape == param._tp_original_shape:
+                begin = config['zero_rank']
+                end = begin + 1
+            else:
+                begin = config['zero_rank'] + config['topology'].tp_id * config['dp_size']
+                end = 1 + config['zero_rank'] + config['topology'].tp_id * config['dp_size']
 
             # Pytorch 1.11 changed the API of storage.__getitem__
             torch.tensor([], dtype=param.dtype, device=param.device).set_(param.storage())[:] = \
-                torch.tensor([], dtype=param.dtype, device=param.device).set_(tmp_storage)[partition_size * config['zero_rank'] : partition_size * (config['zero_rank'] + 1)]
+                torch.tensor([], dtype=param.dtype, device=param.device).set_(tmp_storage)[partition_size * begin : partition_size * end]
             # param.storage().copy_(tmp_storage[partition_size * config['rank'] : partition_size * (config['rank'] + 1)])
 
 def iterate_parameters(model : torch.nn.Module):

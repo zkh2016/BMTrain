@@ -12,8 +12,6 @@ class DistributedModule(torch.nn.Module):
     def __getattr__(self, name: str):
         ret = super().__getattr__(name)
         # gather distributed parameters if not in CheckpointBlock
-        if config['tp_size'] > 1 and config['dp_size'] == 1:
-            return ret.reshape(ret._original_shape)
         if isinstance(ret, DistributedParameter) and not ret._in_checkpoint_block: 
             return ret.gather()
         return ret
