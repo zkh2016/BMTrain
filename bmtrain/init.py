@@ -78,6 +78,7 @@ def init_distributed(
     config["tp_size"] = tp_size if tp_size > 0 else 1
     config["topology"] = topology(config)
     config["zero_rank"] = config['topology'].get_group_rank("zero")
+    config["tp_zero_rank"] = config['topology'].get_group_rank("tp_zero")
     cpus_this_worker = None
     
     all_available_cpus = sorted(list(os.sched_getaffinity(0)))
@@ -106,6 +107,7 @@ def init_distributed(
     
     unique_id = bytes.fromhex(store.get("BMTRAIN_UNIQUE_ID").decode())
     config['comm'] = nccl.commInitRank(unique_id, world_size, rank)
+    config['zero_comm'] = config['comm']
 
     if config['pipe_enabled']:
         config["micros"] = num_micro_batches if num_micro_batches else config["pipe_size"]
@@ -125,13 +127,13 @@ def init_distributed(
         config['tp_comm'] = nccl.commInitRank(unique_id, tp_size, topo.tp_id)
 
     if not config['pipe_enabled'] and config['tp_size'] <= 1:
-        config['zero_comm'] = config['comm']
+        config['tp_zero_comm'] = config['comm']
     else:
-        if topo.zero_id == 0:
+        if topo.tp_zero_id == 0:
             unique_id = nccl.getUniqueId()
-            store.set(f"ZERO_UNIQUE_ID{topo.zero_idx}", unique_id.hex() )
-        unique_id = bytes.fromhex(store.get(f"ZERO_UNIQUE_ID{topo.zero_idx}").decode())
-        config ['zero_comm'] = nccl.commInitRank(unique_id, world_size//(config['pipe_size'] * config['tp_size']), topo.zero_id)
+            store.set(f"ZERO_UNIQUE_ID{topo.tp_zero_idx}", unique_id.hex() )
+        unique_id = bytes.fromhex(store.get(f"ZERO_UNIQUE_ID{topo.tp_zero_idx}").decode())
+        config ['tp_zero_comm'] = nccl.commInitRank(unique_id, world_size//(config['pipe_size'] * config['tp_size']), topo.tp_zero_id)
 
     for i in range(world_size):
         if i == rank:
@@ -156,25 +158,28 @@ class topology:
         assert world_size % (pp_size * tp_size) == 0, "The nums of GPUs must be divisible by the pipeline parallel size * tensor parallel size"
 
         dp_size = world_size // (pp_size * tp_size)
-        config['dp_size'] = dp_size
+        config['tp_zero_size'] = dp_size
+        config['zero_size'] = world_size // pp_size 
         topo=torch.tensor(range(dp_size*tp_size*pp_size),dtype=torch.int,device='cuda')
         topo=topo.view(pp_size,dp_size*tp_size)
         self.pp_group=topo.transpose(0,1).reshape(-1,pp_size)
         self.stage_id = (self.pp_group == self.rank).nonzero()[0,-1].item()
         self.stages = config['pipe_size']
         self.pipe_idx = (self.pp_group == self.rank).nonzero()[0, 0].item() # x axes
+        self.zero_id = self.pipe_idx
+        self.zero_idx = self.stage_id
         
         self.tp_group = topo.reshape(pp_size, dp_size, tp_size)
         self.tp_id = (self.tp_group == self.rank).nonzero()[0,2].item()   
         self.tp_idx = (self.tp_group == self.rank).nonzero()[0,1 if dp_size > 1 else 0].item()   
 
         if pp_size == 1 and tp_size == 1:
-            self.zero_id = self.rank
-            self.zero_idx = 0
+            self.tp_zero_id = self.rank
+            self.tp_zero_idx = 0
         else:
             self.dp_group = self.tp_group.permute(0,2,1)
-            self.zero_id = (self.dp_group == self.rank).nonzero()[0,2 if tp_size > 1 else 0].item()   
-            self.zero_idx = (self.dp_group == self.rank).nonzero()[0,1 if tp_size > 1 else 2].item()   
+            self.tp_zero_id = (self.dp_group == self.rank).nonzero()[0,2 if tp_size > 1 else 0].item()   
+            self.tp_zero_idx = (self.dp_group == self.rank).nonzero()[0,1 if tp_size > 1 else 2].item()   
 
         self.next_rank = self.stage_id+1 if self.stage_id < config['pipe_size'] - 1 else -1
         self.prev_rank = self.stage_id-1 if self.stage_id > 0 else -1
@@ -186,6 +191,8 @@ class topology:
             return self.pipe_idx
         elif group_name == "zero":
             return self.zero_idx
+        elif group_name == "tp_zero":
+            return self.tp_zero_idx
         elif group_name == "tp":
             return self.tp_idx
         
@@ -194,6 +201,8 @@ class topology:
             return self.stage_id
         elif group_name == "zero":
             return self.zero_id
+        elif group_name == "tp_zero":
+            return self.tp_zero_id
         elif group_name == "tp":
             return self.tp_id
 

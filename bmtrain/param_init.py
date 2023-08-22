@@ -14,19 +14,29 @@ def init_distributed_parameter(params : Iterable[torch.nn.Parameter]):
             continue
         with torch.no_grad():
             partition_size = param.storage().size()
-            global_size = partition_size * config['dp_size'] * (config['tp_size'] if param._tp_split_dim >= 0 else 1)
-            
+            if param._tp_mode:
+                world_size = config['tp_zero_size'] * (config['tp_size'] if param._tp_split_dim >= 0 else 1)
+                rank =  config['tp_zero_rank'] + config['topology'].tp_id * config['tp_zero_size']
+            else:
+                world_size = config['zero_size']
+                rank = config['zero_rank']
+
+            global_size = partition_size *  world_size          
             tmp_storage = param.storage_type()(global_size)
             tmp_tensor = torch.tensor([], dtype=param.dtype, device="cuda")
             tmp_tensor.set_(tmp_storage, 0, param._tp_original_shape)
 
             param._init_method(tmp_tensor)
-            if param._original_shape == param._tp_original_shape:
+            if param._tp_mode:
+                if param._original_shape == param._tp_original_shape:
+                    begin = config['tp_zero_rank']
+                    end = begin + 1
+                else:
+                    begin = rank                 
+                    end = 1 + begin 
+            else:
                 begin = config['zero_rank']
                 end = begin + 1
-            else:
-                begin = config['zero_rank'] + config['topology'].tp_id * config['dp_size']
-                end = 1 + config['zero_rank'] + config['topology'].tp_id * config['dp_size']
 
             # Pytorch 1.11 changed the API of storage.__getitem__
             torch.tensor([], dtype=param.dtype, device=param.device).set_(param.storage())[:] = \

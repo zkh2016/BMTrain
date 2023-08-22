@@ -33,7 +33,8 @@ class DistributedParameter(torch.nn.Parameter):
             requires_grad : bool = True, 
             init_method : Optional[Callable[['DistributedParameter'], None]] = None,
             group : Optional[str] = None,
-            tp_split_dim=-1,
+            tp_mode : bool = False,
+            tp_split_dim : int = -1,
         ):
         if not config["initialized"]:
             raise RuntimeError("BMTrain is not initialized")
@@ -41,14 +42,17 @@ class DistributedParameter(torch.nn.Parameter):
         num_of_elements = data.numel()
 
         cuda_tensor = torch.tensor([], dtype=data.dtype, device="cuda") 
-        comm = config['zero_comm']
+        if tp_mode:
+            comm = config['tp_zero_comm']
+        else:
+            comm = config['zero_comm']
         world_size = nccl.commCount(comm)
         rank = nccl.commRank(comm)
         cuda_storage_size = round_up(num_of_elements, world_size) // world_size
 
         original_shape = data.size()
         tp_original_shape = original_shape 
-        if config['tp_size'] > 1 and tp_split_dim >= 0:
+        if tp_mode and tp_split_dim >= 0:
             list_shape = list(original_shape)
             list_shape[tp_split_dim] *= config['tp_size']
             tp_original_shape = list_shape
@@ -70,7 +74,10 @@ class DistributedParameter(torch.nn.Parameter):
         setattr(ret, "_end_partition", end_of_partition)
         setattr(ret, "_init_method", init_method)
         setattr(ret, "_in_checkpoint_block", False)
-        setattr(ret, "_group", group)
+        setattr(ret, "_group", group if not tp_mode else "tp")
+        
+        setattr(ret, "_tp_mode", tp_mode)
+        setattr(ret, "_zero_comm", comm)
         setattr(ret, "_tp_split_dim", tp_split_dim)
         setattr(ret, "_tp_original_shape", tp_original_shape)
         return ret
@@ -127,7 +134,7 @@ class OpAllGather(torch.autograd.Function):
     @staticmethod
     def forward(ctx, value : DistributedParameter):
         assert isinstance(value, DistributedParameter)
-        comm = config['zero_comm']
+        comm = value._zero_comm #config['zero_comm']
         world_size = nccl.commCount(comm)
         ctx.comm = comm
         ctx.world_size = world_size
