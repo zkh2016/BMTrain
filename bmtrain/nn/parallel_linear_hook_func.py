@@ -10,7 +10,6 @@ class ReduceType(Enum):
     ALL_REDUCE = 1
     REDUCE_SCATTER = 2
 
-
 def preprocess_input(input, gather_input, split_input):
     if gather_input:
         input = all_gather(input, config['tp_comm'])
