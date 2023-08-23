@@ -337,7 +337,9 @@ class CheckpointBlock(torch.nn.Module):
                     tp_split_dim = param._tp_split_dim
                     if tp_split_dim >= 0:
                         param_list = contiguous_param.chunk(config['tp_size'], dim=tp_split_dim)
-                        contiguous_param = param_list[config['topology'].tp_id]
+                        sub_tensor = param_list[config['topology'].tp_id]
+                        contiguous_param = torch.empty(sub_tensor.shape, device=sub_tensor.device, dtype=sub_tensor.dtype)
+                        contiguous_param.copy_(sub_tensor)
                 
                 offset_st = max(storage_st - param_st, 0)
                 offset_end = min(storage_end - param_st, contiguous_param.numel())
