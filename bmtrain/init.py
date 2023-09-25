@@ -77,6 +77,7 @@ def init_distributed(
     config["zero_level"] = zero_level
     config["topology"] = topology(config)
     config["zero_rank"] = config["topology"].get_group_rank("zero") if pipe_size > 1 else config['rank']
+    config["save_param_to_cpu"] = True
     cpus_this_worker = None
     
     all_available_cpus = sorted(list(os.sched_getaffinity(0)))

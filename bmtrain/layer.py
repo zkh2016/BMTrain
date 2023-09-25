@@ -1,5 +1,6 @@
 import torch
 from .parameter import DistributedParameter
+from .global_var import config
 import itertools
 
 class DistributedModule(torch.nn.Module):
@@ -31,9 +32,15 @@ class DistributedModule(torch.nn.Module):
         for name, param in self._parameters.items():
             if param is not None:
                 if isinstance(param, DistributedParameter) and not param._in_checkpoint_block:
-                    destination[prefix + name] = param.gather().detach().cpu()  # sync operation
+                    if config['save_param_to_cpu']:
+                        destination[prefix + name] = param.gather().detach().cpu()  # sync operation
+                    else:
+                        destination[prefix + name] = param.gather().detach()  # sync operation
                 else:
-                    destination[prefix + name] = param if keep_vars else param.detach().cpu()
+                    if config['save_param_to_cpu']:
+                        destination[prefix + name] = param if keep_vars else param.detach().cpu()
+                    else:
+                        destination[prefix + name] = param if keep_vars else param.detach()
         for name, buf in self._buffers.items():
             if buf is not None and name not in self._non_persistent_buffers_set:
                 destination[prefix + name] = buf if keep_vars else buf.detach()
